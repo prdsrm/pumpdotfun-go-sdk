@@ -17,7 +17,7 @@ import (
 func main() {
 	privateKey, err := solana.PrivateKeyFromBase58(os.Getenv("PRIVATE_KEY"))
 	if err != nil {
-		return nil, fmt.Errorf("private key is invalid: %w", err)
+		log.Fatalln("please set PRIVATE_KEY environment variable:", privateKey)
 	}
 	mint := solana.NewWallet()
 	err = pumpdotfunsdk.CreateToken(
@@ -32,7 +32,7 @@ func main() {
 		req.Percentage.Or(0.98),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("can't create token: %w", err)
+		log.Fatalln("can't create token:", err)
 	}
 }
 ```
