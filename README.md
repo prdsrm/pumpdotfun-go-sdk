@@ -8,6 +8,7 @@ A SDK allowing you to create, buy and sell pump.fun tokens in Golang.
 package main
 
 import (
+	"log"
     "os"
 
     solana "github.com/gagliardetto/solana-go"
