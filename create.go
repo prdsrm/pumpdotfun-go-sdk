@@ -194,6 +194,16 @@ type CreateTokenMetadataRequest struct {
 	Website     string
 }
 
+type CreateTokenMetadataFromBlobRequest struct {
+	File        []byte
+	Name        string
+	Symbol      string
+	Description string
+	Twitter     string
+	Telegram    string
+	Website     string
+}
+
 type CreateTokenMetadataResponse struct {
 	Name        string `json:"name"`
 	Symbol      string `json:"symbol"`
@@ -231,13 +241,13 @@ func CreateTokenMetadata(client *http.Client, create CreateTokenMetadataRequest)
 	}
 
 	// Add the other form fields
-	writer.WriteField("name", create.Name)
-	writer.WriteField("symbol", create.Symbol)
-	writer.WriteField("description", create.Description)
-	writer.WriteField("twitter", create.Twitter)
-	writer.WriteField("telegram", create.Telegram)
-	writer.WriteField("website", create.Website)
-	writer.WriteField("showName", "true")
+	_ = writer.WriteField("name", create.Name)
+	_ = writer.WriteField("symbol", create.Symbol)
+	_ = writer.WriteField("description", create.Description)
+	_ = writer.WriteField("twitter", create.Twitter)
+	_ = writer.WriteField("telegram", create.Telegram)
+	_ = writer.WriteField("website", create.Website)
+	_ = writer.WriteField("showName", "true")
 
 	// Close the writer to finalize the form data
 	err = writer.Close()
@@ -260,6 +270,53 @@ func CreateTokenMetadata(client *http.Client, create CreateTokenMetadataRequest)
 	defer resp.Body.Close()
 
 	// Parse the JSON response
+	var result CreateTokenMetadataResponse
+	err = json.NewDecoder(resp.Body).Decode(&result)
+	if err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func CreateTokenMetadataFromBlob(client *http.Client, create CreateTokenMetadataFromBlobRequest) (*CreateTokenMetadataResponse, error) {
+	var b bytes.Buffer
+	writer := multipart.NewWriter(&b)
+
+	part, err := writer.CreateFormFile("file", "image.png")
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := part.Write(create.File); err != nil {
+		return nil, err
+	}
+
+	_ = writer.WriteField("name", create.Name)
+	_ = writer.WriteField("symbol", create.Symbol)
+	_ = writer.WriteField("description", create.Description)
+	_ = writer.WriteField("twitter", create.Twitter)
+	_ = writer.WriteField("telegram", create.Telegram)
+	_ = writer.WriteField("website", create.Website)
+	_ = writer.WriteField("showName", "true")
+
+	err = writer.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", "https://pump.fun/api/ipfs", &b)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
 	var result CreateTokenMetadataResponse
 	err = json.NewDecoder(resp.Body).Decode(&result)
 	if err != nil {

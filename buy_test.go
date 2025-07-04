@@ -36,7 +36,7 @@ func TestCalculateBuyQuote(t *testing.T) {
 
 func TestConvertSlippageBasisPointsToPercentage(t *testing.T) {
 	t.Parallel()
-	
+
 	tests := []struct {
 		name                string
 		slippageBasisPoints uint
