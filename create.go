@@ -184,24 +184,28 @@ func CreateToken(rpcClient *rpc.Client, wsClient *ws.Client, user solana.Private
 	return sig.String(), nil
 }
 
-type CreateTokenMetadataRequest struct {
-	Filename    string
+// Common struct for shared metadata fields
+type CreateTokenMetadataCommon struct {
 	Name        string
 	Symbol      string
 	Description string
 	Twitter     string
 	Telegram    string
 	Website     string
+	ShowName    bool
+}
+
+type CreateTokenMetadataRequest struct {
+	Filename string
+	// FileURL is the URL to fetch the file from
+	FileURL string
+	CreateTokenMetadataCommon
 }
 
 type CreateTokenMetadataFromBlobRequest struct {
-	File        []byte
-	Name        string
-	Symbol      string
-	Description string
-	Twitter     string
-	Telegram    string
-	Website     string
+	File     []byte
+	Filename string
+	CreateTokenMetadataCommon
 }
 
 type CreateTokenMetadataResponse struct {
@@ -218,98 +222,52 @@ type CreateTokenMetadataResponse struct {
 	MetadataUri string `json:"metadataUri"`
 }
 
-func CreateTokenMetadata(client *http.Client, create CreateTokenMetadataRequest) (*CreateTokenMetadataResponse, error) {
-	// Create a buffer to hold the form data
-	var b bytes.Buffer
-	writer := multipart.NewWriter(&b)
+// Constant for the IPFS API URL
+const ipfsAPIURL = "https://pump.fun/api/ipfs"
 
-	// Add the file from URL
-	resp, err := http.Get(create.Filename)
+// Helper to upload token metadata (DRY)
+func uploadTokenMetadata(
+	client *http.Client,
+	apiURL string,
+	fileName string,
+	fileReader io.Reader,
+	meta CreateTokenMetadataCommon,
+) (*CreateTokenMetadataResponse, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+
+	part, err := w.CreateFormFile("file", fileName)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	// Create the form file
-	part, err := writer.CreateFormFile("file", "image.png")
+	if _, err := io.Copy(part, fileReader); err != nil {
+		return nil, err
+	}
+
+	fields := map[string]string{
+		"name":        meta.Name,
+		"symbol":      meta.Symbol,
+		"description": meta.Description,
+		"twitter":     meta.Twitter,
+		"telegram":    meta.Telegram,
+		"website":     meta.Website,
+		"showName":    fmt.Sprintf("%v", meta.ShowName),
+	}
+	for k, v := range fields {
+		if err := w.WriteField(k, v); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", apiURL, &buf)
 	if err != nil {
 		return nil, err
 	}
-	// Copy the file content to the form file
-	_, err = io.Copy(part, resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	// Add the other form fields
-	_ = writer.WriteField("name", create.Name)
-	_ = writer.WriteField("symbol", create.Symbol)
-	_ = writer.WriteField("description", create.Description)
-	_ = writer.WriteField("twitter", create.Twitter)
-	_ = writer.WriteField("telegram", create.Telegram)
-	_ = writer.WriteField("website", create.Website)
-	_ = writer.WriteField("showName", "true")
-
-	// Close the writer to finalize the form data
-	err = writer.Close()
-	if err != nil {
-		return nil, err
-	}
-
-	// Create the HTTP request
-	req, err := http.NewRequest("POST", "https://pump.fun/api/ipfs", &b)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
-	// Perform the HTTP request
-	resp, err = client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	// Parse the JSON response
-	var result CreateTokenMetadataResponse
-	err = json.NewDecoder(resp.Body).Decode(&result)
-	if err != nil {
-		return nil, err
-	}
-
-	return &result, nil
-}
-
-func CreateTokenMetadataFromBlob(client *http.Client, create CreateTokenMetadataFromBlobRequest) (*CreateTokenMetadataResponse, error) {
-	var b bytes.Buffer
-	writer := multipart.NewWriter(&b)
-
-	part, err := writer.CreateFormFile("file", "image.png")
-	if err != nil {
-		return nil, err
-	}
-
-	if _, err := part.Write(create.File); err != nil {
-		return nil, err
-	}
-
-	_ = writer.WriteField("name", create.Name)
-	_ = writer.WriteField("symbol", create.Symbol)
-	_ = writer.WriteField("description", create.Description)
-	_ = writer.WriteField("twitter", create.Twitter)
-	_ = writer.WriteField("telegram", create.Telegram)
-	_ = writer.WriteField("website", create.Website)
-	_ = writer.WriteField("showName", "true")
-
-	err = writer.Close()
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("POST", "https://pump.fun/api/ipfs", &b)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Content-Type", w.FormDataContentType())
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -317,11 +275,25 @@ func CreateTokenMetadataFromBlob(client *http.Client, create CreateTokenMetadata
 	}
 	defer resp.Body.Close()
 
-	var result CreateTokenMetadataResponse
-	err = json.NewDecoder(resp.Body).Decode(&result)
+	var out CreateTokenMetadataResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// CreateTokenMetadata now uses the helper
+func CreateTokenMetadata(client *http.Client, req CreateTokenMetadataRequest) (*CreateTokenMetadataResponse, error) {
+	resp, err := http.Get(req.FileURL)
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
+	return uploadTokenMetadata(client, ipfsAPIURL, req.Filename, resp.Body, req.CreateTokenMetadataCommon)
+}
 
-	return &result, nil
+// CreateTokenMetadataFromBlob now uses the helper and allows API URL injection
+func CreateTokenMetadataFromBlob(client *http.Client, req CreateTokenMetadataFromBlobRequest) (*CreateTokenMetadataResponse, error) {
+	r := bytes.NewReader(req.File)
+	return uploadTokenMetadata(client, ipfsAPIURL, req.Filename, r, req.CreateTokenMetadataCommon)
 }
