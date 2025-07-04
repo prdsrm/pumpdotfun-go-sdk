@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
 
 	// General solana packages.
 	"github.com/gagliardetto/solana-go"
@@ -195,16 +196,19 @@ type CreateTokenMetadataCommon struct {
 	ShowName    bool
 }
 
-type CreateTokenMetadataRequest struct {
+type CreateTokenMetadataRequestFromFile struct {
 	Filename string
+	CreateTokenMetadataCommon
+}
+
+type CreateTokenMetadataRequestFromURL struct {
 	// FileURL is the URL to fetch the file from
 	FileURL string
 	CreateTokenMetadataCommon
 }
 
 type CreateTokenMetadataFromBlobRequest struct {
-	File     []byte
-	Filename string
+	File []byte
 	CreateTokenMetadataCommon
 }
 
@@ -224,6 +228,9 @@ type CreateTokenMetadataResponse struct {
 
 // Constant for the IPFS API URL
 const ipfsAPIURL = "https://pump.fun/api/ipfs"
+
+// Constant for a dummy filename used when uploading from URL or blob
+const dummyFilename = "image.png"
 
 // Helper to upload token metadata (DRY)
 func uploadTokenMetadata(
@@ -282,18 +289,24 @@ func uploadTokenMetadata(
 	return &out, nil
 }
 
-// CreateTokenMetadata now uses the helper
-func CreateTokenMetadata(client *http.Client, req CreateTokenMetadataRequest) (*CreateTokenMetadataResponse, error) {
+func CreateTokenMetadataFromFile(client *http.Client, req CreateTokenMetadataRequestFromFile) (*CreateTokenMetadataResponse, error) {
+	file, err := os.Open(req.Filename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file %s: %w", req.Filename, err)
+	}
+	return uploadTokenMetadata(client, ipfsAPIURL, req.Filename, file, req.CreateTokenMetadataCommon)
+}
+
+func CreateTokenMetadataFromURL(client *http.Client, req CreateTokenMetadataRequestFromURL) (*CreateTokenMetadataResponse, error) {
 	resp, err := http.Get(req.FileURL)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	return uploadTokenMetadata(client, ipfsAPIURL, req.Filename, resp.Body, req.CreateTokenMetadataCommon)
+	return uploadTokenMetadata(client, ipfsAPIURL, dummyFilename, resp.Body, req.CreateTokenMetadataCommon)
 }
 
-// CreateTokenMetadataFromBlob now uses the helper and allows API URL injection
 func CreateTokenMetadataFromBlob(client *http.Client, req CreateTokenMetadataFromBlobRequest) (*CreateTokenMetadataResponse, error) {
 	r := bytes.NewReader(req.File)
-	return uploadTokenMetadata(client, ipfsAPIURL, req.Filename, r, req.CreateTokenMetadataCommon)
+	return uploadTokenMetadata(client, ipfsAPIURL, dummyFilename, r, req.CreateTokenMetadataCommon)
 }
